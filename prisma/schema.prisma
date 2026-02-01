@@ -1,0 +1,199 @@
+// This is your Prisma schema file
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model League {
+  id          Int      @id @default(autoincrement())
+  externalId  Int      @unique
+  name        String
+  country     String
+  priority    Int      @default(5) // Higher priority leagues get more weight
+  season      String
+  teams       Team[]
+  matches     Match[]
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([externalId])
+  @@index([country, season])
+}
+
+model Team {
+  id              Int      @id @default(autoincrement())
+  externalId      Int      @unique
+  name            String
+  shortName       String
+  leagueId        Int
+  league          League   @relation(fields: [leagueId], references: [id])
+  
+  // Stats
+  position        Int?
+  played          Int      @default(0)
+  wins            Int      @default(0)
+  draws           Int      @default(0)
+  losses          Int      @default(0)
+  goalsFor        Int      @default(0)
+  goalsAgainst    Int      @default(0)
+  points          Int      @default(0)
+  
+  // Form metrics
+  formPoints      Int      @default(0) // Last 5 games points
+  homeWinRate     Float    @default(0)
+  awayWinRate     Float    @default(0)
+  avgGoalsScored  Float    @default(0)
+  avgGoalsConceded Float   @default(0)
+  
+  homeMatches     Match[]  @relation("HomeTeam")
+  awayMatches     Match[]  @relation("AwayTeam")
+  injuries        Injury[]
+  predictions     Prediction[]
+  
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([externalId])
+  @@index([leagueId, position])
+}
+
+model Match {
+  id              Int      @id @default(autoincrement())
+  externalId      Int      @unique
+  leagueId        Int
+  league          League   @relation(fields: [leagueId], references: [id])
+  
+  homeTeamId      Int
+  homeTeam        Team     @relation("HomeTeam", fields: [homeTeamId], references: [id])
+  awayTeamId      Int
+  awayTeam        Team     @relation("AwayTeam", fields: [awayTeamId], references: [id])
+  
+  startTime       DateTime
+  status          MatchStatus @default(SCHEDULED)
+  
+  // Result (if finished)
+  homeScore       Int?
+  awayScore       Int?
+  
+  // Pre-match odds
+  homeOdds        Float?
+  drawOdds        Float?
+  awayOdds        Float?
+  
+  // Head-to-head
+  h2hHomeWins     Int      @default(0)
+  h2hDraws        Int      @default(0)
+  h2hAwayWins     Int      @default(0)
+  
+  prediction      Prediction?
+  
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([externalId])
+  @@index([startTime])
+  @@index([leagueId, startTime])
+}
+
+enum MatchStatus {
+  SCHEDULED
+  LIVE
+  FINISHED
+  POSTPONED
+  CANCELLED
+}
+
+model Injury {
+  id          Int      @id @default(autoincrement())
+  teamId      Int
+  team        Team     @relation(fields: [teamId], references: [id])
+  playerName  String
+  position    String?
+  severity    InjurySeverity
+  expectedReturn DateTime?
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([teamId, severity])
+}
+
+enum InjurySeverity {
+  MINOR
+  MODERATE
+  SEVERE
+  DOUBTFUL
+}
+
+model Prediction {
+  id                Int      @id @default(autoincrement())
+  matchId           Int      @unique
+  match             Match    @relation(fields: [matchId], references: [id])
+  
+  recommendedTeamId Int
+  recommendedTeam   Team     @relation(fields: [recommendedTeamId], references: [id])
+  
+  betType           BetType
+  confidenceScore   Float    // 0-100
+  
+  // Contributing factors
+  formScore         Float
+  homeAwayScore     Float
+  h2hScore          Float
+  injuryImpact      Float
+  leagueMotivation  Float
+  oddsValue         Float
+  
+  // Classification
+  category          BetCategory
+  
+  // Reasoning
+  reasoning         String   @db.Text
+  keyFactors        String[] // Array of key factors
+  
+  // Metadata
+  generatedAt       DateTime @default(now())
+  isActive          Boolean  @default(true)
+  
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@index([matchId])
+  @@index([category, confidenceScore])
+  @@index([generatedAt])
+}
+
+enum BetType {
+  HOME_WIN
+  AWAY_WIN
+  DRAW
+  BTTS      // Both teams to score
+  OVER_2_5
+  UNDER_2_5
+}
+
+enum BetCategory {
+  SAFE_BET      // High confidence, lower odds
+  VALUE_BET     // Medium confidence, good odds
+  RISKY_BET     // Lower confidence, high odds
+  AVOID         // Do not bet
+}
+
+model WeekendSnapshot {
+  id          Int      @id @default(autoincrement())
+  weekStart   DateTime
+  weekEnd     DateTime
+  totalMatches Int
+  totalPredictions Int
+  avgConfidence Float
+  metadata    Json?    // Store additional stats
+  
+  createdAt   DateTime @default(now())
+
+  @@index([weekStart])
+}
